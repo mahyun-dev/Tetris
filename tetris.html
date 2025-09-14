@@ -160,9 +160,11 @@
         return ctx;
       }
 
-      const sctx = setupCanvas(stage, 280, 560);
-      const nctx = setupCanvas(next , 140, 140);
-      const cell = Math.floor(280 / W);
+      const stageBox = stage.getBoundingClientRect();
+      const nextBox  = next.getBoundingClientRect();
+      const sctx = setupCanvas(stage, stageBox.width, stageBox.height);
+      const nctx = setupCanvas(next , nextBox.width , nextBox.height );
+      const cell = Math.floor(stageBox.width / W);
 
       /*** Utils ***/
       const idx = (x,y) => y*W + x;
@@ -170,30 +172,54 @@
 
       /*** Tetromino data ***/
       const coreTets = [
-        {color:'#00ffff', rot:[ [[-1,0],[0,0],[1,0],[2,0]], [[0,-1],[0,0],[0,1],[0,2]] ]}, // I
-        {color:'#ffff33', rot:[ [[0,0],[1,0],[0,1],[1,1]] ]}, // O
-        {color:'#33ff33', rot:[ [[0,0],[1,0],[-1,1],[0,1]], [[-1,-1],[-1,0],[0,0],[0,1]] ]}, // S
-        {color:'#ff3333', rot:[ [[-1,0],[0,0],[0,1],[1,1]], [[0,-1],[-1,0],[0,0],[-1,1]] ]}, // Z
-        {color:'#3399ff', rot:[ [[-1,-1],[-1,0],[0,0],[1,0]], [[0,-1],[1,-1],[0,0],[0,1]] ]}, // L
-        {color:'#ff9933', rot:[ [[1,-1],[-1,0],[0,0],[1,0]], [[0,-1],[0,0],[0,1],[1,1]] ]}, // J
-        {color:'#cc33ff', rot:[ [[0,-1],[-1,0],[0,0],[1,0]], [[0,-1],[0,0],[1,0],[0,1]] ]}, // T
+        {color:'#00ffff', rot:[ [[-1,0],[0,0],[1,0],[2,0]], [[0,-1],[0,0],[0,1],[0,2]], [[-1,0],[0,0],[1,0],[2,0]], [[0,-1],[0,0],[0,1],[0,2]] ]}, // I
+        {color:'#ffff33', rot:Array(4).fill([[0,0],[1,0],[0,1],[1,1]])}, // O
+        {color:'#33ff33', rot:[ [[0,0],[1,0],[-1,1],[0,1]], [[-1,-1],[-1,0],[0,0],[0,1]], [[0,0],[1,0],[-1,1],[0,1]], [[-1,-1],[-1,0],[0,0],[0,1]] ]}, // S
+        {color:'#ff3333', rot:[ [[-1,0],[0,0],[0,1],[1,1]], [[0,-1],[-1,0],[0,0],[-1,1]], [[-1,0],[0,0],[0,1],[1,1]], [[0,-1],[-1,0],[0,0],[-1,1]] ]}, // Z
+        {color:'#3399ff', rot:[ [[-1,-1],[-1,0],[0,0],[1,0]], [[0,-1],[1,-1],[0,0],[0,1]], [[-1,0],[0,0],[1,0],[1,1]], [[0,-1],[0,0],[-1,1],[0,1]] ]}, // L
+        {color:'#ff9933', rot:[ [[1,-1],[-1,0],[0,0],[1,0]], [[0,-1],[0,0],[0,1],[1,1]], [[-1,0],[0,0],[1,0],[-1,1]], [[-1,-1],[0,-1],[0,0],[0,1]] ]}, // J
+        {color:'#cc33ff', rot:[ [[0,-1],[-1,0],[0,0],[1,0]], [[0,-1],[0,0],[1,0],[0,1]], [[-1,0],[0,0],[1,0],[0,1]], [[0,-1],[-1,0],[0,0],[0,1]] ]}, // T
       ];
 
       const specialTets = [
-        { color:'#ff66ff', rot:[ [[-1,0],[1,0],[-1,1],[0,1],[1,1]] ]}, // U
-        { color:'#66ffcc', rot:[ [[0,-1],[-1,0],[0,0],[1,0],[0,1]] ]}, // +
-        { color:'#ffaa00', rot:[ [[-2,0],[-1,0],[0,0],[1,0],[2,0]], [[0,-2],[0,-1],[0,0],[0,1],[0,2]] ]}, // 긴 I
-        { color:'#ff44aa', rot:[ [[0,0],[1,0],[1,1],[2,1]], [[1,-1],[0,0],[1,0],[0,1]] ]}, // 계단형
+        // U
+        { color:'#ff66ff', rot:[
+          [[-1,0],[1,0],[-1,1],[0,1],[1,1]],
+          [[0,-1],[0,1],[-1,1],[1,-1],[1,1]],
+          [[-1,0],[0,0],[1,0],[-1,1],[1,1]],
+          [[-1,-1],[-1,1],[0,-1],[0,1],[1,0]]
+        ]},
+        // +
+        { color:'#66ffcc', rot:[
+          [[0,-1],[-1,0],[0,0],[1,0],[0,1]],
+          [[0,-1],[-1,0],[0,0],[1,0],[0,1]],
+          [[0,-1],[-1,0],[0,0],[1,0],[0,1]],
+          [[0,-1],[-1,0],[0,0],[1,0],[0,1]]
+        ]},
+        // I
+        { color:'#ffcc33', rot:[
+          [[-2,0],[-1,0],[0,0],[1,0],[2,0]],
+          [[0,-2],[0,-1],[0,0],[0,1],[0,2]],
+          [[-2,0],[-1,0],[0,0],[1,0],[2,0]],
+          [[0,-2],[0,-1],[0,0],[0,1],[0,2]]
+        ]},
+        // Z
+        { color:'#ff44aa', rot:[
+          [[0,0],[1,0],[1,1],[2,1]],
+          [[1,-1],[0,0],[1,0],[0,1]],
+          [[0,0],[1,0],[1,1],[2,1]],
+          [[1,-1],[0,0],[1,0],[0,1]]
+        ]}
       ];
 
-      function getTet(tet) {
-        return tet.type==='core' ? coreTets[tet.id] : specialTets[tet.id];
-      }
-
+      // spawn()에서 확률적으로 선택
       function randomTet() {
-        return Math.random() < 0.85
-          ? { type: 'core', id: Math.floor(Math.random()*coreTets.length) }
-          : { type: 'special', id: Math.floor(Math.random()*specialTets.length) };
+        const r = Math.random();
+        if (r < 0.8) {
+          return { type: 'core', id: Math.floor(Math.random()*coreTets.length) };
+        } else {
+          return { type: 'special', id: Math.floor(Math.random()*specialTets.length) };
+        }
       }
 
       /*** Game State ***/
@@ -225,11 +251,15 @@
           ctx.shadowBlur = 15;
           ctx.fillStyle = color;
           ctx.fillRect(px, py, sz, sz);
-          ctx.strokeStyle = "#fff";
           ctx.lineWidth = 2;
+          ctx.strokeStyle = "#fff";
           ctx.strokeRect(px, py, sz, sz);
         }
         ctx.restore();
+      }
+
+      function getTet(tet) {
+        return tet.type==='core' ? coreTets[tet.id] : specialTets[tet.id];
       }
 
       function drawStage() {
@@ -237,14 +267,18 @@
         for(let y=0;y<H;y++){
           for(let x=0;x<W;x++){
             const c = grid[idx(x,y)];
-            if(c) drawCell(sctx,x,y,c);
+            if(c) drawCell(sctx,x,y,c,false);
           }
         }
         if(cur){
           const t = getTet(cur.t);
-          for(const [ox,oy] of t.rot[cur.r]) drawCell(sctx, cur.x+ox, cur.y+oy, t.color);
+          for(const [ox,oy] of t.rot[cur.r]) {
+            drawCell(sctx, cur.x+ox, cur.y+oy, t.color, false);
+          }
           const gy = ghostY();
-          for(const [ox,oy] of t.rot[cur.r]) drawCell(sctx, cur.x+ox, gy+oy, t.color,true);
+          for(const [ox,oy] of t.rot[cur.r]) {
+            drawCell(sctx, cur.x+ox, gy+oy, t.color, true);
+          }
         }
       }
 
@@ -253,7 +287,9 @@
         const t = getTet(nextT);
         const offsetX = Math.floor((PREVIEW_W/2)-1);
         const offsetY = Math.floor((PREVIEW_H/2)-1);
-        for(const [ox,oy] of t.rot[0]) drawCell(nctx, offsetX+ox, offsetY+oy, t.color);
+        for(const [ox,oy] of t.rot[0]) {
+          drawCell(nctx, offsetX+ox, offsetY+oy, t.color,false);
+        }
       }
 
       /*** Spawning & collision ***/
@@ -265,7 +301,7 @@
       }
 
       function canMove(nx, ny, t, r) {
-        const shape = getTet(t).rot[r % getTet(t).rot.length];
+        const shape = getTet(t).rot[r];
         for(const [ox,oy] of shape) {
           const x = nx + ox, y = ny + oy;
           if(x<0 || x>=W || y>=H) return false;
@@ -331,6 +367,7 @@
         const dt = now - last;
         last = now;
         dropTimer += dt;
+        last = now;
 
         const g = gravityMs();
         if(dropTimer >= g) {
@@ -353,7 +390,7 @@
         if(paused || over || !cur) return;
         const nx = cur.x + (dx|0);
         const ny = cur.y + (dy|0);
-        const nr = (cur.r + (dr|0) + 4) % getTet(cur.t).rot.length;
+        const nr = (cur.r + (dr|0) + 4) % 4;
         if(canMove(nx, ny, cur.t, nr)) {
           cur.x = nx; cur.y = ny; cur.r = nr;
           drawStage();
