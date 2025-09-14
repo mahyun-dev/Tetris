@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>Tetris</title>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: radial-gradient(circle at center,#111 0%,#000 100%);
+      font-family: monospace, sans-serif;
+      color: #fff;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+      overflow: hidden;
+    }
+
+    .tetris-container {
+      display: flex;
+      gap: 20px;
+      padding: 20px;
+      background: rgba(20,20,20,.6);
+      border: 2px solid rgba(255,255,255,.2);
+      border-radius: 16px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 0 25px rgba(0,255,255,.3);
+    }
+
+    .stage-wrap {
+      width: 280px;
+      height: 560px;
+      background: #000;
+      border: 3px solid #0ff;
+      box-shadow: 0 0 20px #0ff;
+      border-radius: 8px;
+    }
+
+    .next-wrap {
+      width: 140px;
+      height: 140px;
+      background: #000;
+      border: 2px solid #ff0;
+      box-shadow: 0 0 15px #ff0;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+
+    .panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .score-line {
+      font-size: 14px;
+      text-align: center;
+      color: #0ff;
+      text-shadow: 0 0 5px #0ff;
+    }
+
+    .msg {
+      font-size: 14px;
+      min-height: 20px;
+      text-align: center;
+      color: #f55;
+      text-shadow: 0 0 8px #f55;
+    }
+
+    .btn-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 60px);
+      gap: 12px;
+      justify-content: center;
+      margin-top: 20px;
+    }
+
+    .tetris-button {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      background: linear-gradient(145deg,#333,#111);
+      box-shadow: inset 2px 2px 4px #000, 0 0 8px rgba(0,255,255,.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 20px;
+      color: #0ff;
+      cursor: pointer;
+      transition: .1s;
+    }
+
+    .tetris-button:active {
+      transform: scale(.9);
+      box-shadow: inset 2px 2px 6px #000, 0 0 15px #0ff;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="tetris-container">
+    <div class="stage-wrap">
+      <canvas id="stage"></canvas>
+    </div>
+    <div class="panel">
+      <div class="next-wrap">
+        <canvas id="next"></canvas>
+      </div>
+      <div class="score-line">SCORE: <span id="score">0</span></div>
+      <div class="score-line">LINES: <span id="lines">0</span></div>
+      <div class="score-line">LEVEL: <span id="level">1</span></div>
+      <div class="score-line">HIGHSCORE: <span id="highscore">0</span></div>
+      <div class="msg" id="message"></div>
+      <div class="btn-grid">
+        <div></div>
+        <div id="btn-rotate" class="tetris-button">↻</div>
+        <div></div>
+        <div id="btn-left" class="tetris-button">←</div>
+        <div id="btn-down" class="tetris-button">↓</div>
+        <div id="btn-right" class="tetris-button">→</div>
+      </div>
+      <div id="pauseBtn" class="tetris-button"
+           style="margin-top:15px;width:80px;height:40px;border-radius:8px;">⏸</div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      /*** Config ***/
+      const W = 10, H = 20;
+      const PREVIEW_W = 6, PREVIEW_H = 6;
+      const BASE_DROP_MS = 800;
+      const MIN_DROP_MS  = 80;
+      const LEVEL_LINES  = 10;
+
+      /*** DOM & DPI setup ***/
+      const stage = document.getElementById('stage');
+      const next  = document.getElementById('next');
+      const scoreEl = document.getElementById('score');
+      const linesEl = document.getElementById('lines');
+      const levelEl = document.getElementById('level');
+      const highEl  = document.getElementById('highscore');
+      const msgEl   = document.getElementById('message');
+      const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+
+      function setupCanvas(canvas, cssWidth, cssHeight) {
+        canvas.width  = Math.floor(cssWidth  * dpr);
+        canvas.height = Math.floor(cssHeight * dpr);
+        const ctx = canvas.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        return ctx;
+      }
+
+      const stageBox = stage.getBoundingClientRect();
+      const nextBox  = next.getBoundingClientRect();
+      const sctx = setupCanvas(stage, stageBox.width, stageBox.height);
+      const nctx = setupCanvas(next , nextBox.width , nextBox.height );
+      const cell = Math.floor(stageBox.width / W);
+
+      /*** Utils ***/
+      const idx = (x,y) => y*W + x;
+      const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+
+      /*** Tetromino data ***/
+      const coreTets = [
+        {color:'#00ffff', rot:[ [[-1,0],[0,0],[1,0],[2,0]], [[0,-1],[0,0],[0,1],[0,2]], [[-1,0],[0,0],[1,0],[2,0]], [[0,-1],[0,0],[0,1],[0,2]] ]}, // I
+        {color:'#ffff33', rot:Array(4).fill([[0,0],[1,0],[0,1],[1,1]])}, // O
+        {color:'#33ff33', rot:[ [[0,0],[1,0],[-1,1],[0,1]], [[-1,-1],[-1,0],[0,0],[0,1]], [[0,0],[1,0],[-1,1],[0,1]], [[-1,-1],[-1,0],[0,0],[0,1]] ]}, // S
+        {color:'#ff3333', rot:[ [[-1,0],[0,0],[0,1],[1,1]], [[0,-1],[-1,0],[0,0],[-1,1]], [[-1,0],[0,0],[0,1],[1,1]], [[0,-1],[-1,0],[0,0],[-1,1]] ]}, // Z
+        {color:'#3399ff', rot:[ [[-1,-1],[-1,0],[0,0],[1,0]], [[0,-1],[1,-1],[0,0],[0,1]], [[-1,0],[0,0],[1,0],[1,1]], [[0,-1],[0,0],[-1,1],[0,1]] ]}, // L
+        {color:'#ff9933', rot:[ [[1,-1],[-1,0],[0,0],[1,0]], [[0,-1],[0,0],[0,1],[1,1]], [[-1,0],[0,0],[1,0],[-1,1]], [[-1,-1],[0,-1],[0,0],[0,1]] ]}, // J
+        {color:'#cc33ff', rot:[ [[0,-1],[-1,0],[0,0],[1,0]], [[0,-1],[0,0],[1,0],[0,1]], [[-1,0],[0,0],[1,0],[0,1]], [[0,-1],[-1,0],[0,0],[0,1]] ]}, // T
+      ];
+
+      const specialTets = [
+        // U
+        { color:'#ff66ff', rot:[
+          [[-1,0],[1,0],[-1,1],[0,1],[1,1]],
+          [[0,-1],[0,1],[-1,1],[1,-1],[1,1]],
+          [[-1,0],[0,0],[1,0],[-1,1],[1,1]],
+          [[-1,-1],[-1,1],[0,-1],[0,1],[1,0]]
+        ]},
+        // +
+        { color:'#66ffcc', rot:[
+          [[0,-1],[-1,0],[0,0],[1,0],[0,1]],
+          [[0,-1],[-1,0],[0,0],[1,0],[0,1]],
+          [[0,-1],[-1,0],[0,0],[1,0],[0,1]],
+          [[0,-1],[-1,0],[0,0],[1,0],[0,1]]
+        ]},
+        // I
+        { color:'#ffcc33', rot:[
+          [[-2,0],[-1,0],[0,0],[1,0],[2,0]],
+          [[0,-2],[0,-1],[0,0],[0,1],[0,2]],
+          [[-2,0],[-1,0],[0,0],[1,0],[2,0]],
+          [[0,-2],[0,-1],[0,0],[0,1],[0,2]]
+        ]},
+        // Z
+        { color:'#ff44aa', rot:[
+          [[0,0],[1,0],[1,1],[2,1]],
+          [[1,-1],[0,0],[1,0],[0,1]],
+          [[0,0],[1,0],[1,1],[2,1]],
+          [[1,-1],[0,0],[1,0],[0,1]]
+        ]}
+      ];
+
+      // spawn()에서 확률적으로 선택
+      function randomTet() {
+        const r = Math.random();
+        if (r < 0.8) {
+          return { type: 'core', id: Math.floor(Math.random()*coreTets.length) };
+        } else {
+          return { type: 'special', id: Math.floor(Math.random()*specialTets.length) };
+        }
+      }
+
+      /*** Game State ***/
+      let grid = new Array(W*H).fill(null);
+      let cur = null;
+      let nextT = randomTet();
+      let score = 0, lines = 0, level = 1;
+      let high  = parseInt(localStorage.getItem('tetris_highscore')||'0',10) || 0;
+      highEl.textContent = high;
+      let paused = false, over = false;
+
+      let dropTimer = 0;
+      const gravityMs = () => clamp(BASE_DROP_MS - (level-1)*60, MIN_DROP_MS, BASE_DROP_MS);
+
+      /*** Drawing ***/
+      function clearCanvas(ctx) {
+        ctx.fillStyle='#000';
+        ctx.fillRect(0,0,ctx.canvas.width/dpr,ctx.canvas.height/dpr);
+      }
+
+      function drawCell(ctx, x, y, color, ghost=false) {
+        const px = x*cell, py = y*cell, sz = cell-1;
+        ctx.save();
+        if (ghost) {
+          ctx.fillStyle = 'rgba(255,255,255,0.2)';
+          ctx.fillRect(px, py, sz, sz);
+        } else {
+          ctx.shadowColor = color;
+          ctx.shadowBlur = 15;
+          ctx.fillStyle = color;
+          ctx.fillRect(px, py, sz, sz);
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = "#fff";
+          ctx.strokeRect(px, py, sz, sz);
+        }
+        ctx.restore();
+      }
+
+      function getTet(tet) {
+        return tet.type==='core' ? coreTets[tet.id] : specialTets[tet.id];
+      }
+
+      function drawStage() {
+        clearCanvas(sctx);
+        for(let y=0;y<H;y++){
+          for(let x=0;x<W;x++){
+            const c = grid[idx(x,y)];
+            if(c) drawCell(sctx,x,y,c,false);
+          }
+        }
+        if(cur){
+          const t = getTet(cur.t);
+          for(const [ox,oy] of t.rot[cur.r]) {
+            drawCell(sctx, cur.x+ox, cur.y+oy, t.color, false);
+          }
+          const gy = ghostY();
+          for(const [ox,oy] of t.rot[cur.r]) {
+            drawCell(sctx, cur.x+ox, gy+oy, t.color, true);
+          }
+        }
+      }
+
+      function drawNext() {
+        clearCanvas(nctx);
+        const t = getTet(nextT);
+        const offsetX = Math.floor((PREVIEW_W/2)-1);
+        const offsetY = Math.floor((PREVIEW_H/2)-1);
+        for(const [ox,oy] of t.rot[0]) {
+          drawCell(nctx, offsetX+ox, offsetY+oy, t.color,false);
+        }
+      }
+
+      /*** Spawning & collision ***/
+      function spawn() {
+        cur = { t: nextT, x: Math.floor(W/2)-2, y: 0, r: 0 };
+        nextT = randomTet();
+        drawNext();
+        if(!canMove(cur.x, cur.y, cur.t, cur.r)) gameOver();
+      }
+
+      function canMove(nx, ny, t, r) {
+        const shape = getTet(t).rot[r];
+        for(const [ox,oy] of shape) {
+          const x = nx + ox, y = ny + oy;
+          if(x<0 || x>=W || y>=H) return false;
+          if(y>=0 && grid[idx(x,y)]) return false;
+        }
+        return true;
+      }
+
+      function lock() {
+        const t = getTet(cur.t);
+        for(const [ox,oy] of t.rot[cur.r]) {
+          const x = cur.x+ox, y = cur.y+oy;
+          if(y>=0) grid[idx(x,y)] = t.color;
+        }
+        clearLines();
+        cur = null;
+      }
+
+      function clearLines() {
+        let cleared = 0;
+        for(let y=H-1; y>=0; ) {
+          let full = true;
+          for(let x=0;x<W;x++) if(!grid[idx(x,y)]) { full=false; break; }
+          if(full) {
+            cleared++;
+            for(let yy=y; yy>0; yy--){
+              for(let x=0;x<W;x++) grid[idx(x,yy)] = grid[idx(x,yy-1)];
+            }
+            for(let x=0;x<W;x++) grid[idx(x,0)] = null;
+          } else {
+            y--;
+          }
+        }
+        if(cleared) {
+          lines += cleared;
+          score += [0,100,300,500,800][cleared];
+          if(score>high) {
+            high = score;
+            localStorage.setItem('tetris_highscore', String(high));
+          }
+          const newLevel = Math.floor(lines/LEVEL_LINES)+1;
+          if(newLevel>level) level = newLevel;
+          scoreEl.textContent = score;
+          linesEl.textContent = lines;
+          levelEl.textContent = level;
+          highEl.textContent  = high;
+        }
+      }
+
+      function ghostY() {
+        let y = cur.y;
+        while(canMove(cur.x, y+1, cur.t, cur.r)) y++;
+        return y;
+      }
+
+      /*** Loop ***/
+      let last = performance.now();
+      function tick(now) {
+        if(over) return;
+        requestAnimationFrame(tick);
+        if(paused) return;
+
+        const dt = now - last;
+        last = now;
+        dropTimer += dt;
+        last = now;
+
+        const g = gravityMs();
+        if(dropTimer >= g) {
+          dropTimer -= g;
+          if(cur) {
+            if(canMove(cur.x, cur.y+1, cur.t, cur.r)) cur.y++;
+            else { lock(); if(!over) spawn(); }
+          } else {
+            spawn();
+          }
+        }
+        drawStage();
+      }
+
+      /*** Controls ***/
+      const Key = { LEFT:37, UP:38, RIGHT:39, DOWN:40, P:80, SPACE:32 };
+      const held = new Set();
+
+      function tryMove(dx,dy,dr) {
+        if(paused || over || !cur) return;
+        const nx = cur.x + (dx|0);
+        const ny = cur.y + (dy|0);
+        const nr = (cur.r + (dr|0) + 4) % 4;
+        if(canMove(nx, ny, cur.t, nr)) {
+          cur.x = nx; cur.y = ny; cur.r = nr;
+          drawStage();
+        }
+      }
+
+      function hardDrop() {
+        if(paused || over || !cur) return;
+        cur.y = ghostY();
+        lock();
+        if(!over) spawn();
+        drawStage();
+      }
+
+      function onKeyDown(e) {
+        const k = e.keyCode || e.which;
+        if(held.has(k)) return;
+        held.add(k);
+        switch(k) {
+          case Key.LEFT:  tryMove(-1,0,0); break;
+          case Key.RIGHT: tryMove(1,0,0);  break;
+          case Key.UP:    tryMove(0,0,1);  break;
+          case Key.DOWN:  tryMove(0,1,0);  break;
+          case Key.SPACE: hardDrop(); break;
+          case Key.P:     togglePause(); break;
+        }
+      }
+
+      function onKeyUp(e) {
+        held.delete(e.keyCode || e.which);
+      }
+
+      window.addEventListener('keydown', onKeyDown, { passive:true });
+      window.addEventListener('keyup',   onKeyUp,   { passive:true });
+
+      const btn = (id, fn) =>
+        document.getElementById(id).addEventListener('mousedown', fn, {passive:true});
+      btn('btn-left' , () => tryMove(-1,0,0));
+      btn('btn-right', () => tryMove(1,0,0));
+      btn('btn-rotate',() => tryMove(0,0,1));
+      btn('btn-down' , () => tryMove(0,1,0));
+      document.getElementById('pauseBtn').addEventListener('click', () => togglePause(), {passive:true});
+
+      function togglePause() {
+        paused = !paused;
+        msgEl.textContent = paused ? 'PAUSED' : '';
+        document.getElementById('pauseBtn').textContent = paused ? '▶' : '⏸';
+      }
+
+      function gameOver() {
+        over = true;
+        msgEl.textContent = 'GAME OVER';
+      }
+
+      /*** Start ***/
+      drawNext();
+      requestAnimationFrame(tick);
+    })();
+  </script>
+</body>
+</html>
